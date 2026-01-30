@@ -1,0 +1,32 @@
+# Environment files
+.env
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+test_bugs.py
+clean_readme_template.md
+reviewer_v2.py
+debug_connection.py
+
+# Logs
+*.log

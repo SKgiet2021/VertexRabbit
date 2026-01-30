@@ -1,0 +1,25 @@
+diff --git a/src/user_service.py b/src/user_service.py
+index 83a2c01..b5d1f2a 100644
+--- a/src/user_service.py
++++ b/src/user_service.py
+@@ -10,12 +10,14 @@ class UserService:
+     def get_user(self, user_id):
+         # Bug 1: SQL Injection vulnerability
+         query = f"SELECT * FROM users WHERE id = '{user_id}'"
+         return self.db.execute(query)
+ 
+     def update_password(self, user_id, password):
+-        # Old logic
+-        self.db.update(user_id, password)
++        # Bug 2: Storing password in plain text
++        print(f"Updating password for {user_id}: {password}")
++        self.db.update("users", {"password": password}, {"id": user_id})
++        return True
+ 
+     def calculate_total(self, items):
+-        return sum(item.price for item in items)
++        # Bug 3: Logic error (price string/float mismatch possible)
++        total = 0
++        for item in items:
++            total += item['price']  
++        return total

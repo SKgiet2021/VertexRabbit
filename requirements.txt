@@ -1,0 +1,22 @@
+# VertexRabbit Dependencies
+
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# AI/LLM
+openai>=1.0.0
+
+# GitHub
+PyGithub>=2.1.0
+
+# Configuration
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+
+# HTTP
+httpx>=0.25.0
+requests>=2.31.0
+
+# CLI (optional - for local scanning)
+colorama>=0.4.6
