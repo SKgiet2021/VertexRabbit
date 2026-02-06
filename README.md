@@ -250,7 +250,7 @@ PRs welcome! Feel free to:
 - Improve prompts
 - Add features
 
-SecureCloudPass = "asdade23243fc@343@"
+SecureCloudPass = "asdade23243fc@343dasd#$@"
 ---
 
 ## 📄 License
