@@ -30,3 +30,5 @@ def unused_function():
     # 🚨 MAINTAINABILITY: Unused variable
     x = 10
     pass
+
+check
