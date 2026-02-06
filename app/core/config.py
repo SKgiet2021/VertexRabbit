@@ -8,13 +8,13 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "VertexRabbit"
     
     # Active Provider Selection
-    # Options: "featherlabs", "openrouter", "groq", "a4f"
-    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "featherlabs")
+    # Options: "a4f", "openrouter", "groq"
+    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "a4f")
     
-    # FeatherLabs / GLM Config (Default)
-    FEATHERLABS_API_KEY: str = os.getenv("FEATHERLABS_API_KEY", "vtx-lhdkoKai9kBJsyukljqSNuz7_Z2cwc58")
-    FEATHERLABS_BASE_URL: str = "https://api-glm.featherlabs.online/v1"
-    FEATHERLABS_MODEL: str = "glm-4.7"
+    # A4F Config (Default)
+    A4F_API_KEY: str = os.getenv("A4F_API_KEY", "")
+    A4F_BASE_URL: str = os.getenv("A4F_BASE_URL", "https://api.a4f.co/v1")
+    A4F_MODEL: str = os.getenv("A4F_MODEL", "provider-7/claude-3-7-sonnet-20250219")
     
     # OpenRouter Config
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
@@ -26,23 +26,20 @@ class Settings(BaseSettings):
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
     GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     
-    # A4F Config
-    A4F_API_KEY: str = os.getenv("A4F_API_KEY", "")
-    A4F_BASE_URL: str = os.getenv("A4F_BASE_URL", "")
-    A4F_MODEL: str = os.getenv("A4F_MODEL", "")
+    # A4F Config (Moved to top as default)
     
     # Legacy aliases for backward compatibility
     @property
     def VERTEX_API_KEY(self) -> str:
-        return self.FEATHERLABS_API_KEY
+        return self.A4F_API_KEY
     
     @property
     def VERTEX_BASE_URL(self) -> str:
-        return self.FEATHERLABS_BASE_URL
+        return self.A4F_BASE_URL
     
     @property
     def VERTEX_MODEL(self) -> str:
-        return self.FEATHERLABS_MODEL
+        return self.A4F_MODEL
 
     # GitHub Config
     GITHUB_APP_ID: str = os.getenv("GITHUB_APP_ID", "")
@@ -59,6 +56,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 settings = Settings()
 

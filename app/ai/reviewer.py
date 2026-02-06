@@ -10,34 +10,51 @@ logger = logging.getLogger("vertex_ai")
 # System prompt that requests structured JSON output for inline comments
 INLINE_SYSTEM_PROMPT = """You are a senior software engineer conducting a thorough code review.
 
-## Your Review Process:
-1. **Understand the Intent**: What is this code trying to achieve?
-2. **Security Analysis**: Could this code be exploited? Information leakage? Authentication bypasses?
-3. **Logic Verification**: Does the code actually do what it's supposed to? Edge cases handled?
-4. **Performance Check**: Are there inefficiencies? N+1 queries? Unnecessary loops?
-5. **Maintainability**: Is this code readable? Would a new developer understand it?
-6. **Best Practices**: Does it follow language/framework conventions?
+## Your Goal:
+Identify specific bugs, security risks, and logic errors. Do NOT comment on formatting/style unless critical.
 
 ## Output Format:
-Return ONLY a JSON array. No explanations, no markdown.
+You MUST return a VALID JSON array of objects. Do not wrap in markdown code blocks. Just the raw JSON.
 
-Each issue:
-{"file": "path/filename", "line": <number>, "severity": "error|warning|info", "message": "<clear explanation>"}
+Each object must follow this schema:
+{
+    "path": "path/filename.ext", 
+    "line": <int>, 
+    "severity": "error|warning|info", 
+    "body": "<concise comment>"
+}
+
+- `path`: Must match the filename in the diff exactly.
+- `line`: The line number in the NEW file where the issue exists.
+- `body`: Be direct and constructive. Suggest a fix if possible.
+
+CRITICAL:
+You can ONLY comment on lines that are **ADDED** or **MODIFIED** in the diff (lines starting with `+`).
+Do NOT comment on unchanged context lines. GitHub will reject comments on lines that are not part of the active diff hunk.
+If a critical issue exists in unchanged code, IGNORE it in this inline mode.
 
 Example:
-[{"file": "auth.py", "line": 42, "severity": "error", "message": "User input passed directly to SQL query without parameterization - SQL injection risk"}]
+[
+    {"path": "app/auth.py", "line": 42, "severity": "error", "body": "SQL Injection vulnerability. Use parameterized queries."},
+    {"path": "app/utils.py", "line": 15, "severity": "warning", "body": "Unused variable `x`."}
+]
 
-If the code is genuinely clean, return: []
+If the code looks good, return an empty array: []
 """
+
+
+from openai import AsyncOpenAI
+import asyncio
+from app.core.limiter import global_limiter
 
 class VertexReviewer:
     """Multi-provider AI Code Reviewer supporting FeatherLabs, OpenRouter, Groq, and A4F"""
     
     PROVIDERS = {
-        "featherlabs": {
-            "base_url": lambda s: s.FEATHERLABS_BASE_URL,
-            "api_key": lambda s: s.FEATHERLABS_API_KEY,
-            "model": lambda s: s.FEATHERLABS_MODEL,
+        "a4f": {
+            "base_url": lambda s: s.A4F_BASE_URL,
+            "api_key": lambda s: s.A4F_API_KEY,
+            "model": lambda s: s.A4F_MODEL,
         },
         "openrouter": {
             "base_url": lambda s: s.OPENROUTER_BASE_URL,
@@ -48,20 +65,15 @@ class VertexReviewer:
             "base_url": lambda s: s.GROQ_BASE_URL,
             "api_key": lambda s: s.GROQ_API_KEY,
             "model": lambda s: s.GROQ_MODEL,
-        },
-        "a4f": {
-            "base_url": lambda s: s.A4F_BASE_URL,
-            "api_key": lambda s: s.A4F_API_KEY,
-            "model": lambda s: s.A4F_MODEL,
-        },
+        }
     }
     
     def __init__(self, provider: str = None):
         self.provider = provider or settings.AI_PROVIDER
         
         if self.provider not in self.PROVIDERS:
-            logger.warning(f"Unknown provider '{self.provider}', falling back to featherlabs")
-            self.provider = "featherlabs"
+            logger.warning(f"Unknown provider '{self.provider}', falling back to a4f")
+            self.provider = "a4f"
         
         config = self.PROVIDERS[self.provider]
         self.base_url = config["base_url"](settings)
@@ -70,7 +82,7 @@ class VertexReviewer:
         
         logger.info(f"✨ Using AI Provider: {self.provider.upper()} | Model: {self.model}")
         
-        self.client = OpenAI(
+        self.client = AsyncOpenAI(
             base_url=self.base_url,
             api_key=self.api_key,
             default_headers={
@@ -78,49 +90,19 @@ class VertexReviewer:
                 "Accept": "application/json",
             }
         )
-        self.system_prompt = """You are a senior software engineer reviewing code. Find ALL issues.
+        self.system_prompt = """You are a senior software engineer reviewing code. Find ALL issues."""
 
-## Output Format (IMPORTANT - Follow EXACTLY):
-
-### 📊 Issues Summary
-| # | Severity | Location | Issue |
-|---|----------|----------|-------|
-| 1 | Critical | file.py:10 | SQL injection via string concatenation |
-| 2 | High | file.py:25 | Hardcoded API key exposed |
-(List ALL issues found in this table)
-
----
-
-### 🔍 Detailed Analysis (Top 2 Critical Issues Only)
-
-**Issue #1: [Title]**
-- **Location:** file.py (Line 10)
-- **Problem:** Brief explanation
-- **Fix:** 
-```python
-# Show fixed code
-```
-
-**Issue #2: [Title]**
-- **Location:** file.py (Line 25)  
-- **Problem:** Brief explanation
-- **Fix:** Show the solution
-
----
-
-If no issues found: "✅ All clear!"
-"""
-
-    def review_diff(self, diff_content: str) -> str:
+    async def review_diff(self, diff_content: str) -> str:
         """
-        Sends the diff to VertexAI/FeatherLabs and returns the review.
-        Returns plain text review (for PR-level comments).
+        Sends the diff to AI and returns the review.
         """
         try:
             safe_content = json.dumps(diff_content)[1:-1]
             logger.info(f"Sending diff ({len(diff_content)} chars) to {self.model}")
 
-            response = self.client.chat.completions.create(
+            await global_limiter.acquire()
+            
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
@@ -128,25 +110,33 @@ If no issues found: "✅ All clear!"
                 ],
                 max_tokens=8000,
                 temperature=0.2,
-                timeout=120  # Extended for multi-bug reviews
+                timeout=120,
+                stream=True
             )
             
-            return response.choices[0].message.content.strip()
+            full_response = ""
+            async for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    full_response += chunk.choices[0].delta.content
+            
+            return full_response.strip()
 
         except Exception as e:
             logger.error(f"AI Review Failed: {e}")
             return f"Error analyzing code: {str(e)}"
 
-    def review_diff_structured(self, diff_content: str) -> list:
+    async def review_diff_structured(self, diff_content: str) -> list:
         """
         Returns structured list of issues for inline comments.
-        Each item: {"file": str, "line": int, "severity": str, "message": str}
+        Each item: {"path": str, "line": int, "severity": str, "body": str}
         """
         try:
             safe_content = json.dumps(diff_content)[1:-1]
             logger.info(f"Sending diff for structured review ({len(diff_content)} chars)")
 
-            response = self.client.chat.completions.create(
+            await global_limiter.acquire()
+
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": INLINE_SYSTEM_PROMPT},
@@ -154,13 +144,23 @@ If no issues found: "✅ All clear!"
                 ],
                 max_tokens=2000,
                 temperature=0.2,
-                timeout=60
+                timeout=60,
+                stream=True
             )
             
-            raw = response.choices[0].message.content.strip()
+            raw = ""
+            async for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    raw += chunk.choices[0].delta.content
             
-            # Clean potential markdown wrapping
-            clean = raw.replace("```json", "").replace("```", "").strip()
+            raw = raw.strip()
+            
+            import re
+            json_match = re.search(r'\[.*\]', raw, re.DOTALL)
+            if json_match:
+                clean = json_match.group(0)
+            else:
+                clean = raw.replace("```json", "").replace("```", "").strip()
             
             issues = json.loads(clean)
             logger.info(f"Found {len(issues)} issues")

@@ -123,3 +123,25 @@ class GitHubClient:
                 fallback_body += f"**{c.get('path')}:{c.get('line')}** - {c.get('body')}\n\n"
             self.post_comment(repo_full_name, pr_number, fallback_body, installation_id)
 
+            self.post_comment(repo_full_name, pr_number, fallback_body, installation_id)
+
+    def create_issue(self, repo_full_name: str, title: str, body: str, labels: list = None, installation_id: int = None):
+        """Creates a GitHub Issue in the repository"""
+        try:
+            gh = self.g
+            if installation_id and hasattr(self, 'integration'):
+                token = self.get_token(installation_id)
+                gh = Github(login_or_token=token)
+
+            repo = gh.get_repo(repo_full_name)
+            issue = repo.create_issue(
+                title=title,
+                body=body,
+                labels=labels or []
+            )
+            logger.info(f"Created Issue #{issue.number}: {title}")
+            return issue.number
+
+        except Exception as e:
+            logger.error(f"Failed to create issue: {e}")
+            return None
